@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Badge photo — studio</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Ccircle%20cx='16'%20cy='16'%20r='15.5'%20fill='%23eef1ec'/%3E%3Cpath%20d='M26.24%2023.17%20A12.5%2012.5%200%200%201%204.67%2010.72'%20fill='none'%20stroke='%2346752e'%20stroke-width='5'/%3E%3Ccircle%20cx='16'%20cy='15'%20r='3.1'%20fill='%2346752e'/%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Unbounded:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --glow:#46752e;          /* couleur du badge — pilotée en JS, toute la page la suit */
+    --glow-ink:#ffffff;      /* encre lisible sur --glow */
+    --bg:#f7f6f2;            /* blanc cassé */
+    --ink:#14181d;
+    --ink-soft:#5b6470;
+    --line:#e2e0d9;
+    --card:#ffffff;
+    --radius:20px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:'Inter',system-ui,sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    min-height:100vh;
+    display:flex;flex-direction:column;
+    overflow-x:hidden;
+  }
+
+  /* ---- ambiance : deux halos qui prennent la couleur du badge ---- */
+  .ambient{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .blob{
+    position:absolute;border-radius:50%;
+    filter:blur(110px);
+    opacity:.14;
+    background:var(--glow);
+    will-change:transform;
+  }
+  .blob.b1{width:55vmax;height:55vmax;top:-22vmax;left:-14vmax;animation:drift1 26s ease-in-out infinite alternate}
+  .blob.b2{width:44vmax;height:44vmax;bottom:-20vmax;right:-12vmax;opacity:.10;animation:drift2 32s ease-in-out infinite alternate}
+  @keyframes drift1{from{transform:translate(0,0) scale(1)}to{transform:translate(6vmax,4vmax) scale(1.12)}}
+  @keyframes drift2{from{transform:translate(0,0) scale(1.05)}to{transform:translate(-5vmax,-3vmax) scale(.95)}}
+
+  header,main,footer{position:relative;z-index:1}
+
+  header{
+    padding:26px 28px 6px;
+    max-width:1120px;width:100%;margin:0 auto;
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  }
+  .wordmark{
+    font-family:'Unbounded',sans-serif;
+    font-weight:700;
+    font-size:clamp(20px,3.2vw,27px);
+    letter-spacing:-0.01em;
+  }
+  .wordmark .dot{color:var(--glow)}
+  header p{color:var(--ink-soft);font-size:14px}
+
+  main{
+    max-width:1120px;width:100%;margin:0 auto;
+    padding:18px 28px 46px;
+    display:grid;
+    grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);
+    gap:26px;align-items:start;flex:1;
+  }
+
+  /* ---- scène ---- */
+  .stage{
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    background:
+      radial-gradient(120% 90% at 50% 0%, #ffffff, #fbfaf7 70%),
+      var(--card);
+    padding:38px 28px 26px;
+    display:flex;flex-direction:column;align-items:center;gap:20px;
+    perspective:1100px;
+    animation:rise .6s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .canvas-wrap{
+    position:relative;
+    width:min(100%,460px);
+    aspect-ratio:1/1;
+    border-radius:50%;
+    transform-style:preserve-3d;
+    transition:box-shadow .5s;
+    box-shadow:
+      0 18px 46px rgba(20,24,29,.16),
+      0 0 80px color-mix(in srgb, var(--glow) 26%, transparent);
+    will-change:transform;
+  }
+  canvas#cv{
+    width:100%;height:100%;display:block;border-radius:50%;
+    cursor:grab;touch-action:none;
+    background:#eceef1;
+  }
+  canvas#cv.dragging{cursor:grabbing}
+  .hint{font-size:13px;color:var(--ink-soft);text-align:center}
+  kbd{
+    font:600 11px 'Inter';padding:1px 6px;border:1px solid var(--line);
+    border-radius:6px;background:#fff;
+  }
+
+  /* ---- panneau ---- */
+  .panel{
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    background:var(--card);
+    box-shadow:0 6px 24px rgba(20,24,29,.05);
+    padding:24px;
+    display:flex;flex-direction:column;gap:22px;
+    animation:rise .6s cubic-bezier(.2,.8,.2,1) .08s both;
+  }
+  @keyframes rise{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+
+  .field label{
+    display:block;
+    font-family:'Archivo',sans-serif;
+    font-weight:700;font-size:11px;
+    text-transform:uppercase;letter-spacing:.12em;
+    color:var(--ink-soft);
+    margin-bottom:9px;
+  }
+  .upload-btn{
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    width:100%;padding:15px;
+    border:2px dashed var(--line);
+    border-radius:14px;
+    background:#fbfaf7;
+    font-size:14px;font-weight:600;color:var(--ink);
+    cursor:pointer;transition:border-color .2s,background .2s,transform .15s;
+  }
+  .upload-btn:hover{border-color:var(--glow);background:color-mix(in srgb, var(--glow) 6%, #fff);transform:translateY(-1px)}
+  input[type=file]{display:none}
+
+  .swatches{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .swatch{
+    padding:9px 15px;border-radius:999px;
+    border:2px solid transparent;
+    cursor:pointer;
+    font-family:'Archivo',sans-serif;font-weight:700;font-size:13px;
+    letter-spacing:.03em;color:#fff;
+    transition:transform .15s,filter .15s,border-color .15s;
+  }
+  .swatch:hover{transform:translateY(-2px) scale(1.03);filter:brightness(1.12)}
+  .swatch[aria-pressed="true"]{border-color:var(--ink)}
+  .swatch:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+  /* ---- trigramme (alternative à la photo) ---- */
+  .tri-field{
+    margin-top:10px;
+    display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;
+  }
+  .tri-or{
+    font-family:'Archivo',sans-serif;font-weight:700;font-size:11px;
+    text-transform:uppercase;letter-spacing:.12em;color:var(--ink-soft);
+  }
+  input#tri{
+    width:100%;padding:11px 14px;
+    border:1px solid var(--line);border-radius:12px;
+    font-family:'Archivo',sans-serif;font-weight:800;
+    font-size:18px;letter-spacing:.3em;text-transform:uppercase;text-align:center;
+    color:var(--ink);background:#fff;
+  }
+  input#tri:focus{outline:2px solid var(--glow);outline-offset:1px;border-color:transparent}
+  .tri-hint{grid-column:2;font-size:12px;color:var(--ink-soft)}
+
+  .zoom-row{display:flex;align-items:center;gap:12px}
+  input[type=range]{flex:1;accent-color:var(--glow)}
+  .icon-btn{
+    border:1px solid var(--line);background:#fff;border-radius:12px;
+    padding:9px 13px;font-size:13px;font-weight:600;color:var(--ink);
+    cursor:pointer;transition:background .15s;
+  }
+  .icon-btn:hover{background:#f2f1ec}
+  .photo-actions{display:flex;gap:10px}
+  .photo-actions .icon-btn{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    height:42px;line-height:1;
+  }
+  .icon-btn.danger{color:#bf3a3f;border-color:#f0d3d4}
+  .icon-btn.danger:hover{background:#fbf1f1}
+
+  .download{
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    padding:16px;border:none;border-radius:14px;
+    background:var(--glow);color:var(--glow-ink);
+    font-family:'Archivo',sans-serif;font-weight:700;font-size:15px;
+    letter-spacing:.03em;cursor:pointer;
+    transition:filter .2s,transform .15s,box-shadow .3s;
+    box-shadow:0 8px 28px color-mix(in srgb, var(--glow) 45%, transparent);
+  }
+  .download:hover{filter:brightness(1.1);transform:translateY(-2px)}
+  .download:active{transform:translateY(0)}
+  .download:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;transform:none}
+
+  footer{padding:0 24px 26px;text-align:center;font-size:12px;color:var(--ink-soft)}
+
+  /* ---- overlay dépôt plein écran ---- */
+  .drop-overlay{
+    position:fixed;inset:0;z-index:50;
+    display:none;align-items:center;justify-content:center;
+    background:color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter:blur(6px);
+    border:3px dashed var(--glow);
+    font-family:'Unbounded',sans-serif;font-weight:500;font-size:clamp(16px,3vw,24px);
+    color:var(--ink);pointer-events:none;
+  }
+  body.dropping .drop-overlay{display:flex}
+
+  /* ---- toast ---- */
+  .toast{
+    position:fixed;left:50%;bottom:28px;z-index:60;
+    transform:translate(-50%,80px);opacity:0;
+    background:rgba(20,24,30,.92);border:1px solid var(--line);
+    color:var(--ink);font-size:14px;font-weight:600;
+    padding:12px 20px;border-radius:999px;
+    transition:transform .35s cubic-bezier(.2,.8,.2,1),opacity .35s;
+    pointer-events:none;
+  }
+  .toast.show{transform:translate(-50%,0);opacity:1}
+
+  canvas#confetti{position:fixed;inset:0;z-index:70;pointer-events:none}
+
+  @media (max-width:780px){
+    main{grid-template-columns:1fr;padding:12px 16px 34px}
+    header{padding:20px 16px 4px}
+    .stage{padding:22px 16px 18px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient" aria-hidden="true">
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+</div>
+
+<header>
+  <h1 class="wordmark">Badge photo<span class="dot">.</span></h1>
+  <p>Vous identifier plus rapidement.</p>
+</header>
+
+<main>
+  <section class="stage" id="stage" aria-label="Aperçu">
+    <div class="canvas-wrap" id="cvWrap">
+      <canvas id="cv" width="1000" height="1000" aria-label="Aperçu de la photo avec badge"></canvas>
+    </div>
+    <p class="hint" id="hint">Déposez une photo n'importe où sur la page, puis glissez-la pour la recadrer. <kbd>molette</kbd> = zoom.</p>
+  </section>
+
+  <section class="panel" aria-label="Réglages">
+
+    <div class="field">
+      <label for="file">Photo</label>
+      <label class="upload-btn" for="file" id="uploadBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Choisir une photo
+      </label>
+      <div class="photo-actions" id="photoActions" style="display:none">
+        <label class="icon-btn" for="file">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+          Remplacer
+        </label>
+        <button type="button" class="icon-btn danger" id="deleteBtn" aria-label="Supprimer la photo">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px;margin-right:6px"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+          Supprimer
+        </button>
+      </div>
+      <input type="file" id="file" accept="image/*">
+      <div class="tri-field" id="triField">
+        <span class="tri-or">ou</span>
+        <input type="text" id="tri" maxlength="3" placeholder="ABC" autocomplete="off" spellcheck="false" aria-label="Trigramme affiché à la place de la photo (3 lettres max)">
+        <span class="tri-hint">Trigramme affiché à la place de la photo (3 lettres max).</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label id="colorLabel">Mots prédéfinis</label>
+      <div class="swatches" role="group" aria-labelledby="colorLabel" id="swatches"></div>
+    </div>
+
+    <div class="field" id="zoomField" style="display:none">
+      <label for="zoom">Zoom de la photo</label>
+      <div class="zoom-row">
+        <input type="range" id="zoom" min="100" max="300" value="100" aria-label="Zoom">
+        <button type="button" class="icon-btn" id="reset">Recentrer</button>
+      </div>
+    </div>
+
+    <button type="button" class="download" id="dl">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Télécharger l'image (PNG)
+    </button>
+
+  </section>
+</main>
+
+<footer>L'image est traitée dans votre navigateur — rien n'est envoyé sur un serveur.</footer>
+
+<div class="drop-overlay" aria-hidden="true">Lâchez la photo ici ✦</div>
+<div class="toast" id="toast" role="status">Image téléchargée ✓</div>
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<script>
+(() => {
+  const SIZE = 1000, C = SIZE/2, R = SIZE/2;
+  const BAND = SIZE * 0.15;
+  const rad = d => d * Math.PI / 180;
+  const reduceMotion = matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+  const PRESETS = [
+    { text:'FACILITATEUR', hex:'#46752e' },
+    { text:'SAMARITIN',    hex:'#e0b400' },
+    { text:'WIN',          hex:'#d6417e' },
+    { text:'SLT',          hex:'#bf3a3f' },
+    { text:'ENGAGEMENT',   hex:'#1e3fae' },
+  ];
+
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const fileInput = document.getElementById('file');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const photoActions = document.getElementById('photoActions');
+  const deleteBtn = document.getElementById('deleteBtn');
+  const zoomInput = document.getElementById('zoom');
+  const resetBtn = document.getElementById('reset');
+  const dlBtn = document.getElementById('dl');
+  const swatchesEl = document.getElementById('swatches');
+  const cvWrap = document.getElementById('cvWrap');
+  const stage = document.getElementById('stage');
+  const hint = document.getElementById('hint');
+  const toast = document.getElementById('toast');
+  const rootStyle = document.documentElement.style;
+
+  const state = {
+    img: null,
+    zoom: 1,
+    offX: 0, offY: 0,
+    color: PRESETS[0].hex,     // couleur cible
+    disp: PRESETS[0].hex,      // couleur affichée (animée vers la cible)
+    text: 'FACILITATEUR',
+    tri: '',                   // trigramme affiché à la place de la photo
+  };
+
+  /* ---------- couleur : transition animée + ambiance de page ---------- */
+  function hexToRgb(hex){
+    const h = hex.replace('#','');
+    return {
+      r: parseInt(h.substring(0,2),16),
+      g: parseInt(h.substring(2,4),16),
+      b: parseInt(h.substring(4,6),16),
+    };
+  }
+  const rgbToHex = ({r,g,b}) =>
+    '#' + [r,g,b].map(v => Math.round(v).toString(16).padStart(2,'0')).join('');
+
+  const favLink = document.querySelector("link[rel='icon']");
+  function updateFavicon(hex){
+    const c = encodeURIComponent(hex);
+    favLink.href =
+      "data:image/svg+xml," +
+      "%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E" +
+      "%3Ccircle%20cx='16'%20cy='16'%20r='15.5'%20fill='%23eef1ec'/%3E" +
+      "%3Cpath%20d='M26.24%2023.17%20A12.5%2012.5%200%200%201%204.67%2010.72'%20fill='none'%20stroke='" + c + "'%20stroke-width='5'/%3E" +
+      "%3Ccircle%20cx='16'%20cy='15'%20r='3.1'%20fill='" + c + "'/%3E%3C/svg%3E";
+  }
+
+  function applyAmbient(hex){
+    rootStyle.setProperty('--glow', hex);
+    const {r,g,b} = hexToRgb(hex);
+    const lum = 0.2126*r + 0.7152*g + 0.0722*b;
+    rootStyle.setProperty('--glow-ink', lum > 168 ? '#14181d' : '#ffffff');
+    updateFavicon(hex);
+  }
+
+  let colorAnim = null;
+  function setColor(hex){
+    state.color = hex;
+    if (reduceMotion){ state.disp = hex; applyAmbient(hex); draw(); return; }
+    if (colorAnim) cancelAnimationFrame(colorAnim);
+    const from = hexToRgb(state.disp), to = hexToRgb(hex);
+    const t0 = performance.now(), DUR = 420;
+    const step = now => {
+      const t = Math.min(1, (now - t0) / DUR);
+      const e = 1 - Math.pow(1 - t, 3); // easeOutCubic
+      state.disp = rgbToHex({
+        r: from.r + (to.r - from.r) * e,
+        g: from.g + (to.g - from.g) * e,
+        b: from.b + (to.b - from.b) * e,
+      });
+      applyAmbient(state.disp);
+      draw();
+      if (t < 1) colorAnim = requestAnimationFrame(step);
+    };
+    colorAnim = requestAnimationFrame(step);
+  }
+  applyAmbient(state.disp);
+
+  /* ---------- mots prédéfinis + couleur libre ---------- */
+  PRESETS.forEach((p, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'swatch';
+    b.style.background = p.hex;
+    b.textContent = p.text;
+    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+    b.addEventListener('click', () => {
+      state.text = p.text;
+      swatchesEl.querySelectorAll('.swatch').forEach(s => s.setAttribute('aria-pressed','false'));
+      b.setAttribute('aria-pressed','true');
+      setColor(p.hex);
+    });
+    swatchesEl.appendChild(b);
+  });
+
+  /* ---------- trigramme : alternative à la photo ---------- */
+  const triInput = document.getElementById('tri');
+  const triField = document.getElementById('triField');
+  const cleanTri = s => s.toUpperCase().replace(/[^A-ZÀ-Þ]/g,'').slice(0,3);
+
+  triInput.addEventListener('input', () => {
+    const pos = triInput.selectionStart;
+    const cleaned = cleanTri(triInput.value);
+    const removed = triInput.value.length - cleaned.length;
+    triInput.value = cleaned;
+    triInput.setSelectionRange(Math.max(0, pos - removed), Math.max(0, pos - removed));
+    state.tri = triInput.value;
+    if (!state.img) draw();
+  });
+
+  /* ---------- dessin ---------- */
+  function coverScale(img){
+    return Math.max(SIZE / img.width, SIZE / img.height);
+  }
+
+  function clampOffsets(){
+    if (!state.img) { state.offX = state.offY = 0; return; }
+    const s = coverScale(state.img) * state.zoom;
+    const w = state.img.width * s, h = state.img.height * s;
+    const maxX = Math.max(0, (w - SIZE) / 2);
+    const maxY = Math.max(0, (h - SIZE) / 2);
+    state.offX = Math.min(maxX, Math.max(-maxX, state.offX));
+    state.offY = Math.min(maxY, Math.max(-maxY, state.offY));
+  }
+
+  function drawPlaceholder(){
+    const bg = ctx.createLinearGradient(0, 0, 0, SIZE);
+    bg.addColorStop(0, '#3d4550');
+    bg.addColorStop(1, '#2c333c');
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.arc(C, C, R, 0, Math.PI*2); ctx.fill();
+
+    ctx.save();
+    ctx.translate(C, C);
+    ctx.scale(1.43, 1.43);
+    ctx.translate(-C, -C);
+
+    ctx.fillStyle = '#8b9bb0';
+    ctx.beginPath(); ctx.arc(C, C*0.92, SIZE*0.135, 0, Math.PI*2); ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(C - SIZE*0.27, SIZE * 1.05);
+    ctx.quadraticCurveTo(C - SIZE*0.27, C*1.17, C, C*1.17);
+    ctx.quadraticCurveTo(C + SIZE*0.27, C*1.17, C + SIZE*0.27, SIZE * 1.05);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBand(){
+    const startDeg = 35, endDeg = 205;
+    const rOut = R, rIn = R - BAND;
+    const rgb = hexToRgb(state.disp);
+    const steps = 140;
+    const fade = 0.12;
+
+    ctx.save();
+    for (let i = 0; i < steps; i++){
+      const t0 = i / steps;
+      const t1 = (i + 1) / steps;
+      const tMid = (t0 + t1) / 2;
+
+      let alpha = 1;
+      if (tMid < fade) alpha = tMid / fade;
+      else if (tMid > 1 - fade) alpha = (1 - tMid) / fade;
+
+      const a0 = rad(startDeg + t0 * (endDeg - startDeg));
+      const a1 = rad(startDeg + t1 * (endDeg - startDeg)) + 0.002;
+
+      ctx.beginPath();
+      ctx.arc(C, C, rOut, a0, a1, false);
+      ctx.arc(C, C, rIn, a1, a0, true);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawTextOnArc(){
+    const text = state.text.trim();
+    if (!text) return;
+    const rText = R - BAND/2;
+    const maxSpan = rad(140);
+
+    let fs = BAND * 0.55;
+    let widths, tracking, total;
+    do {
+      ctx.font = `700 ${fs}px Archivo, Arial, sans-serif`;
+      tracking = fs * 0.14;
+      widths = [...text].map(ch => ctx.measureText(ch).width);
+      total = widths.reduce((a,w) => a + (w + tracking) / rText, 0) - tracking / rText;
+      if (total > maxSpan) fs *= 0.95;
+    } while (total > maxSpan && fs > 18);
+
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `700 ${fs}px Archivo, Arial, sans-serif`;
+
+    const mid = rad(122);
+    let angle = mid + total / 2;
+    [...text].forEach((ch, i) => {
+      const w = widths[i];
+      const half = (w / 2) / rText;
+      angle -= half;
+      const x = C + rText * Math.cos(angle);
+      const y = C + rText * Math.sin(angle);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle - Math.PI/2);
+      ctx.fillText(ch, 0, 0);
+      ctx.restore();
+      angle -= half + tracking / rText;
+    });
+    ctx.restore();
+  }
+
+  function drawTri(){
+    const rgb = hexToRgb(state.disp);
+
+    // fond : teinte très claire de la couleur du badge
+    ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},0.10)`;
+    ctx.beginPath(); ctx.arc(C, C, R, 0, Math.PI*2); ctx.fill();
+
+    // centre exact du cercle, taille contrainte par le disque intérieur
+    const rIn = R - BAND;
+    const cx = C;
+    const cy = C;
+    const maxW = rIn * 1.15;
+    const maxH = rIn * 0.85;
+
+    let fs = SIZE * 0.30;
+    let m;
+    for (let i = 0; i < 40; i++){
+      ctx.font = `800 ${fs}px Archivo, Arial, sans-serif`;
+      m = ctx.measureText(state.tri);
+      const w = (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || 0) || m.width;
+      const h = (m.actualBoundingBoxAscent || fs * 0.72) + (m.actualBoundingBoxDescent || 0);
+      if (w <= maxW && h <= maxH) break;
+      fs *= 0.95;
+      if (fs < 40) break;
+    }
+
+    // centrage : horizontal par textAlign, vertical par les métriques réelles
+    const asc = m.actualBoundingBoxAscent || fs * 0.72;
+    const desc = m.actualBoundingBoxDescent || 0;
+
+    ctx.fillStyle = state.disp;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(state.tri, cx, cy + (asc - desc) / 2);
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, SIZE, SIZE);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(C, C, R, 0, Math.PI*2);
+    ctx.clip();
+
+    if (state.img) {
+      const s = coverScale(state.img) * state.zoom;
+      const w = state.img.width * s, h = state.img.height * s;
+      ctx.drawImage(state.img, C - w/2 + state.offX, C - h/2 + state.offY, w, h);
+    } else if (state.tri) {
+      drawTri();
+    } else {
+      drawPlaceholder();
+    }
+    ctx.restore();
+
+    drawBand();
+    drawTextOnArc();
+  }
+
+  /* ---------- chargement photo ---------- */
+  function loadFile(file){
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try{
+          state.img = img;
+          state.zoom = 1; state.offX = 0; state.offY = 0;
+          zoomInput.value = 100;
+          dlBtn.disabled = false;
+          document.getElementById('zoomField').style.display = '';
+          uploadBtn.style.display = 'none';
+          photoActions.style.display = '';
+          triField.style.display = 'none';
+          hint.innerHTML = 'Glissez la photo pour la repositionner. <kbd>molette</kbd> ou pincement = zoom.';
+          draw();
+        } catch(err){
+          hint.textContent = "Erreur à l'affichage de la photo : " + err.message;
+        }
+      };
+      img.onerror = () => {
+        hint.textContent = "Impossible de lire cette photo. Essayez un autre fichier (JPG ou PNG).";
+      };
+      img.src = reader.result;
+    };
+    reader.onerror = () => {
+      hint.textContent = "Impossible de lire ce fichier depuis votre appareil.";
+    };
+    reader.readAsDataURL(file);
+  }
+
+  deleteBtn.addEventListener('click', () => {
+    state.img = null;
+    state.zoom = 1; state.offX = 0; state.offY = 0;
+    zoomInput.value = 100;
+    fileInput.value = '';
+    document.getElementById('zoomField').style.display = 'none';
+    uploadBtn.style.display = '';
+    photoActions.style.display = 'none';
+    triField.style.display = '';
+    hint.innerHTML = state.tri
+      ? "Photo supprimée — le trigramme est affiché à la place."
+      : "Déposez une photo n'importe où sur la page, puis glissez-la pour la recadrer. <kbd>molette</kbd> = zoom.";
+    draw();
+  });
+
+  fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
+
+  /* ---------- dépôt plein écran ---------- */
+  let dragDepth = 0;
+  window.addEventListener('dragenter', e => {
+    e.preventDefault();
+    if (++dragDepth === 1) document.body.classList.add('dropping');
+  });
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('dragleave', e => {
+    e.preventDefault();
+    if (--dragDepth <= 0){ dragDepth = 0; document.body.classList.remove('dropping'); }
+  });
+  window.addEventListener('drop', e => {
+    e.preventDefault();
+    dragDepth = 0;
+    document.body.classList.remove('dropping');
+    loadFile(e.dataTransfer.files[0]);
+  });
+
+  /* ---------- zoom ---------- */
+  function setZoom(z){
+    state.zoom = Math.min(3, Math.max(1, z));
+    zoomInput.value = Math.round(state.zoom * 100);
+    clampOffsets();
+    draw();
+  }
+
+  zoomInput.addEventListener('input', () => setZoom(zoomInput.value / 100));
+
+  resetBtn.addEventListener('click', () => {
+    state.zoom = 1; state.offX = 0; state.offY = 0;
+    zoomInput.value = 100;
+    draw();
+  });
+
+  cv.addEventListener('wheel', e => {
+    if (!state.img) return;
+    e.preventDefault();
+    setZoom(state.zoom * (e.deltaY < 0 ? 1.06 : 0.94));
+  }, { passive:false });
+
+  /* ---------- déplacement + pincement ---------- */
+  const pointers = new Map();
+  let lastX = 0, lastY = 0, pinchStartDist = 0, pinchStartZoom = 1;
+
+  const dist = () => {
+    const [a, b] = [...pointers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+
+  cv.addEventListener('pointerdown', e => {
+    if (!state.img) return;
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    cv.setPointerCapture(e.pointerId);
+    if (pointers.size === 1){
+      cv.classList.add('dragging');
+      lastX = e.clientX; lastY = e.clientY;
+    } else if (pointers.size === 2){
+      pinchStartDist = dist();
+      pinchStartZoom = state.zoom;
+    }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!pointers.has(e.pointerId)) {
+      // survol simple : léger tilt 3D de la scène
+      if (!reduceMotion && matchMedia('(pointer:fine)').matches){
+        const r = stage.getBoundingClientRect();
+        const dx = (e.clientX - r.left) / r.width - .5;
+        const dy = (e.clientY - r.top) / r.height - .5;
+        cvWrap.style.transform = `rotateY(${dx*7}deg) rotateX(${-dy*7}deg)`;
+      }
+      return;
+    }
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (pointers.size === 2){
+      setZoom(pinchStartZoom * dist() / pinchStartDist);
+      return;
+    }
+    const k = SIZE / cv.getBoundingClientRect().width;
+    state.offX += (e.clientX - lastX) * k;
+    state.offY += (e.clientY - lastY) * k;
+    lastX = e.clientX; lastY = e.clientY;
+    clampOffsets();
+    draw();
+  });
+  ['pointerup','pointercancel'].forEach(ev => cv.addEventListener(ev, e => {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) cv.classList.remove('dragging');
+    if (pointers.size === 1){
+      const p = [...pointers.values()][0];
+      lastX = p.x; lastY = p.y;
+    }
+  }));
+  stage.addEventListener('pointerleave', () => { cvWrap.style.transform = ''; });
+
+  /* ---------- confettis ---------- */
+  const fx = document.getElementById('confetti');
+  const fxCtx = fx.getContext('2d');
+  function confetti(){
+    if (reduceMotion) return;
+    fx.width = innerWidth; fx.height = innerHeight;
+    const btn = dlBtn.getBoundingClientRect();
+    const ox = btn.left + btn.width/2, oy = btn.top + btn.height/2;
+    const base = hexToRgb(state.disp);
+    const parts = Array.from({ length: 130 }, () => {
+      const a = Math.random() * Math.PI * 2;
+      const v = 5 + Math.random() * 9;
+      const shade = .55 + Math.random() * .7;
+      return {
+        x: ox, y: oy,
+        vx: Math.cos(a) * v, vy: Math.sin(a) * v - 5,
+        s: 4 + Math.random() * 6,
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - .5) * .3,
+        col: Math.random() < .25 ? '#ffffff'
+          : `rgb(${Math.min(255,base.r*shade)|0},${Math.min(255,base.g*shade)|0},${Math.min(255,base.b*shade)|0})`,
+        life: 1,
+      };
+    });
+    const t0 = performance.now();
+    const step = now => {
+      const dt = Math.min(32, now - (step.last || now)) / 16.7;
+      step.last = now;
+      fxCtx.clearRect(0, 0, fx.width, fx.height);
+      let alive = false;
+      for (const p of parts){
+        p.vy += .32 * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.rot += p.vr * dt;
+        p.life -= .009 * dt;
+        if (p.life <= 0) continue;
+        alive = true;
+        fxCtx.save();
+        fxCtx.globalAlpha = Math.min(1, p.life * 2);
+        fxCtx.translate(p.x, p.y);
+        fxCtx.rotate(p.rot);
+        fxCtx.fillStyle = p.col;
+        fxCtx.fillRect(-p.s/2, -p.s/2, p.s, p.s * .6);
+        fxCtx.restore();
+      }
+      if (alive && now - t0 < 2600) requestAnimationFrame(step);
+      else fxCtx.clearRect(0, 0, fx.width, fx.height);
+    };
+    requestAnimationFrame(step);
+  }
+
+  /* ---------- téléchargement ---------- */
+  let toastTimer = null;
+  dlBtn.addEventListener('click', () => {
+    cv.toBlob(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'photo-badge.png';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      confetti();
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+    }, 'image/png');
+  });
+
+  /* ---------- premier rendu ---------- */
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.load('700 40px Archivo').then(draw);
+    document.fonts.ready.then(draw);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>
