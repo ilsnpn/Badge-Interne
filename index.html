@@ -146,6 +146,15 @@
   .swatch:hover{transform:translateY(-2px) scale(1.03);filter:brightness(1.12)}
   .swatch[aria-pressed="true"]{border-color:var(--ink)}
   .swatch:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  /* numéro d'ordre quand plusieurs badges sont enchaînés */
+  .swatch[data-order]::after{
+    content:attr(data-order);
+    display:inline-grid;place-items:center;
+    width:18px;height:18px;margin-left:8px;border-radius:50%;
+    background:rgba(255,255,255,.92);color:var(--ink);
+    font-size:11px;letter-spacing:0;vertical-align:1px;
+  }
+  .swatch-hint{margin-top:9px;font-size:12px;color:var(--ink-soft)}
 
   /* ---- trigramme (alternative à la photo) ---- */
   .tri-field{
@@ -280,8 +289,9 @@
     </div>
 
     <div class="field">
-      <label id="colorLabel">Mots prédéfinis</label>
+      <label id="colorLabel">Badges</label>
       <div class="swatches" role="group" aria-labelledby="colorLabel" id="swatches"></div>
+      <p class="swatch-hint">Cliquez pour ajouter ou retirer un badge : ils s'enchaînent autour de la photo, dans l'ordre de sélection.</p>
     </div>
 
     <div class="field" id="zoomField" style="display:none">
@@ -315,7 +325,7 @@
 
   const PRESETS = [
     { text:'FACILITATEUR', hex:'#46752e' },
-    { text:'SAMARITIN',    hex:'#e0b400' },
+    { text:'SAMARITAINS',  hex:'#e0b400' },
     { text:'WIN',          hex:'#d6417e' },
     { text:'SLT',          hex:'#bf3a3f' },
     { text:'ENGAGEMENT',   hex:'#1e3fae' },
@@ -343,8 +353,8 @@
     offX: 0, offY: 0,
     color: PRESETS[0].hex,     // couleur cible
     disp: PRESETS[0].hex,      // couleur affichée (animée vers la cible)
-    text: 'FACILITATEUR',
-    tri: '',                   // trigramme affiché à la place de la photo
+    badges: [0],               // index dans PRESETS, dans l'ordre de sélection
+    tri: '',                 // trigramme affiché à la place de la photo
   };
 
   /* ---------- couleur : transition animée + ambiance de page ---------- */
@@ -401,22 +411,39 @@
   }
   applyAmbient(state.disp);
 
-  /* ---------- mots prédéfinis + couleur libre ---------- */
+  /* ---------- badges : sélection multiple, enchaînés dans l'ordre de clic ---------- */
+  function refreshSwatches(){
+    const multi = state.badges.length > 1;
+    swatchesEl.querySelectorAll('.swatch').forEach((s, i) => {
+      const pos = state.badges.indexOf(i);
+      s.setAttribute('aria-pressed', pos >= 0 ? 'true' : 'false');
+      if (multi && pos >= 0) s.dataset.order = pos + 1;
+      else delete s.dataset.order;
+    });
+  }
+
   PRESETS.forEach((p, i) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'swatch';
     b.style.background = p.hex;
     b.textContent = p.text;
-    b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
     b.addEventListener('click', () => {
-      state.text = p.text;
-      swatchesEl.querySelectorAll('.swatch').forEach(s => s.setAttribute('aria-pressed','false'));
-      b.setAttribute('aria-pressed','true');
-      setColor(p.hex);
+      const pos = state.badges.indexOf(i);
+      if (pos >= 0){
+        if (state.badges.length === 1) return; // au moins un badge
+        state.badges.splice(pos, 1);
+      } else {
+        state.badges.push(i);
+      }
+      refreshSwatches();
+      // la couleur de la page suit le premier badge
+      const first = PRESETS[state.badges[0]].hex;
+      if (first !== state.color) setColor(first); else draw();
     });
     swatchesEl.appendChild(b);
   });
+  refreshSwatches();
 
   /* ---------- trigramme : alternative à la photo ---------- */
   const triInput = document.getElementById('tri');
@@ -472,73 +499,116 @@
     ctx.restore();
   }
 
-  function drawBand(){
-    const startDeg = 35, endDeg = 205;
+  /* Angles en degrés, sens du canvas (0° = droite, 90° = bas).
+     La chaîne de badges part du haut-gauche, passe par le bas et remonte
+     à droite : on la parcourt en angles décroissants depuis `start`. */
+  const ARC_CENTER = 120, ARC_START_MAX = 205;
+  const deg = r => r * 180 / Math.PI;
+
+  function layoutBadges(){
+    const items = state.badges.map((idx, k) => ({
+      text: PRESETS[idx].text,
+      hex: k === 0 ? state.disp : PRESETS[idx].hex, // le 1er suit la couleur animée
+    }));
+    const single = items.length === 1;
+    const rText = R - BAND/2;
+    const pad = single ? 15 : 7;          // marge texte → bord du segment
+    const minW = single ? 170 : 36;       // largeur mini d'un segment
+    const maxTotal = single ? 170 : 330;  // longueur maxi de la chaîne
+
+    // une seule taille de police pour tous les badges, réduite jusqu'à ce que tout tienne
+    let fs = BAND * 0.55, tracking, total;
+    do {
+      ctx.font = `700 ${fs}px Archivo, Arial, sans-serif`;
+      tracking = fs * 0.14;
+      total = 0;
+      for (const it of items){
+        it.widths = [...it.text].map(ch => ctx.measureText(ch).width);
+        it.span = deg(it.widths.reduce((a,w) => a + (w + tracking) / rText, 0) - tracking / rText);
+        it.w = Math.max(minW, it.span + 2 * pad);
+        total += it.w;
+      }
+      if (total > maxTotal) fs *= 0.95;
+    } while (total > maxTotal && fs > 18);
+
+    // centrée en bas à gauche tant qu'elle est courte, puis ancrée en haut à gauche
+    const start = Math.min(ARC_START_MAX, ARC_CENTER + total / 2);
+    let a = start;
+    for (const it of items){
+      it.mid = a - it.w / 2;
+      a -= it.w;
+    }
+    return { items, fs, tracking, rText, start, total, single };
+  }
+
+  function drawBand(L){
+    const { items, start, total, single } = L;
     const rOut = R, rIn = R - BAND;
-    const rgb = hexToRgb(state.disp);
-    const steps = 140;
-    const fade = 0.12;
+    const fade = single ? total * 0.12 : 10; // fondu vers le transparent aux deux bouts
+    const blend = 2.5;                        // demi-largeur du fondu entre deux couleurs
+    const rgbs = items.map(it => hexToRgb(it.hex));
+    const mix = (p, q, t) => ({ r: p.r + (q.r - p.r) * t, g: p.g + (q.g - p.g) * t, b: p.b + (q.b - p.b) * t });
+    const steps = Math.max(140, Math.ceil(total * 1.5));
 
     ctx.save();
     for (let i = 0; i < steps; i++){
-      const t0 = i / steps;
-      const t1 = (i + 1) / steps;
-      const tMid = (t0 + t1) / 2;
+      const d0 = i / steps * total;
+      const d1 = (i + 1) / steps * total;
+      const dm = (d0 + d1) / 2;
 
       let alpha = 1;
-      if (tMid < fade) alpha = tMid / fade;
-      else if (tMid > 1 - fade) alpha = (1 - tMid) / fade;
+      if (dm < fade) alpha = dm / fade;
+      else if (dm > total - fade) alpha = (total - dm) / fade;
 
-      const a0 = rad(startDeg + t0 * (endDeg - startDeg));
-      const a1 = rad(startDeg + t1 * (endDeg - startDeg)) + 0.002;
+      // segment courant et fondu de couleur près des jonctions
+      let k = 0, end = items[0].w;
+      while (k < items.length - 1 && dm > end){ k++; end += items[k].w; }
+      const begin = end - items[k].w;
+      let col = rgbs[k];
+      if (k < items.length - 1 && end - dm < blend)
+        col = mix(rgbs[k], rgbs[k + 1], (1 - (end - dm) / blend) / 2);
+      else if (k > 0 && dm - begin < blend)
+        col = mix(rgbs[k - 1], rgbs[k], (1 + (dm - begin) / blend) / 2);
+
+      const a0 = rad(start - d0) + 0.002;
+      const a1 = rad(start - d1);
 
       ctx.beginPath();
-      ctx.arc(C, C, rOut, a0, a1, false);
-      ctx.arc(C, C, rIn, a1, a0, true);
+      ctx.arc(C, C, rOut, a1, a0, false);
+      ctx.arc(C, C, rIn, a0, a1, true);
       ctx.closePath();
-      ctx.fillStyle = `rgba(${rgb.r},${rgb.g},${rgb.b},${alpha})`;
+      ctx.fillStyle = `rgba(${col.r|0},${col.g|0},${col.b|0},${alpha})`;
       ctx.fill();
     }
     ctx.restore();
   }
 
-  function drawTextOnArc(){
-    const text = state.text.trim();
-    if (!text) return;
-    const rText = R - BAND/2;
-    const maxSpan = rad(140);
-
-    let fs = BAND * 0.55;
-    let widths, tracking, total;
-    do {
-      ctx.font = `700 ${fs}px Archivo, Arial, sans-serif`;
-      tracking = fs * 0.14;
-      widths = [...text].map(ch => ctx.measureText(ch).width);
-      total = widths.reduce((a,w) => a + (w + tracking) / rText, 0) - tracking / rText;
-      if (total > maxSpan) fs *= 0.95;
-    } while (total > maxSpan && fs > 18);
-
+  function drawBadgeTexts(L){
+    const { items, fs, tracking, rText } = L;
     ctx.save();
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.textBaseline = 'alphabetic';
     ctx.font = `700 ${fs}px Archivo, Arial, sans-serif`;
+    const capH = ctx.measureText('H').actualBoundingBoxAscent || fs * 0.7;
 
-    const mid = rad(122);
-    let angle = mid + total / 2;
-    [...text].forEach((ch, i) => {
-      const w = widths[i];
-      const half = (w / 2) / rText;
-      angle -= half;
-      const x = C + rText * Math.cos(angle);
-      const y = C + rText * Math.sin(angle);
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(angle - Math.PI/2);
-      ctx.fillText(ch, 0, 0);
-      ctx.restore();
-      angle -= half + tracking / rText;
-    });
+    for (const it of items){
+      // moitié basse : tête des lettres vers le centre ; moitié haute : vers l'extérieur.
+      // Dans les deux cas le mot se lit de gauche à droite, sans pencher la tête.
+      const lower = Math.sin(rad(it.mid)) >= 0;
+      const dir = lower ? -1 : 1;
+      let angle = rad(it.mid) - dir * rad(it.span) / 2;
+      [...it.text].forEach((ch, i) => {
+        const half = (it.widths[i] / 2) / rText;
+        angle += dir * half;
+        ctx.save();
+        ctx.translate(C + rText * Math.cos(angle), C + rText * Math.sin(angle));
+        ctx.rotate(angle + (lower ? -Math.PI/2 : Math.PI/2));
+        ctx.fillText(ch, 0, capH / 2); // centré sur la hauteur des capitales
+        ctx.restore();
+        angle += dir * (half + tracking / rText);
+      });
+    }
     ctx.restore();
   }
 
@@ -596,8 +666,9 @@
     }
     ctx.restore();
 
-    drawBand();
-    drawTextOnArc();
+    const L = layoutBadges();
+    drawBand(L);
+    drawBadgeTexts(L);
   }
 
   /* ---------- chargement photo ---------- */
